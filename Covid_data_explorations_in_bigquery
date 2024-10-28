@@ -1,0 +1,137 @@
+/* Some key things:
+- I had done this in Bigquery and did not know how to put multiple queries in one window so I ended up having a tab for each query.
+- the solid lines are the indicators for these tabs, along with the (x) number. */
+
+
+-- (1) [the bracket indicate the order in which I wrote down the queries]
+SELECT *
+FROM `citric-lead-439717-j1.Portfolio.covid_deaths`
+ORDER BY 3,4
+
+————————————————————————————————
+-- (2)
+SELECT *
+FROM `citric-lead-439717-j1.Portfolio.covid_vaccinations`
+ORDER BY 3,4
+
+———————————————————————————————
+-- select the data that we are gonna be creating (3)
+SELECT Location, date, total_cases, new_cases, total_deaths, population
+FROM `Portfolio.covid_deaths`
+ORDER BY 1,2
+
+———————————————————————————————
+-- Looking at total cases vs total deaths (4)
+-- showing the rough estimate (in %) of you dying due to covid in your country.
+SELECT Location, date, total_cases,total_deaths, (total_deaths/total_cases)*100 AS percentage_deaths
+FROM `Portfolio.covid_deaths`
+-- WHERE total_deaths IS NOT NULL (to remove the null results. Though it seems important to also include them for now.)
+--WHERE location like "%states%" (so this part of the query shows no data. We have a regexp_contains function but idk how to use that. This basically shows any word that has "states" in their name - will figure this out sometime soon still.)
+WHERE location = 'United States'
+ORDER BY 1,2
+
+—————————————————————————————-
+-- Total cases vs Population (5)
+-- Shows what % of population got covid (this is for US so just swap it for UK if you want)
+SELECT Location, date, total_cases,population, (total_cases/population)*100 AS percentage_cases
+FROM `Portfolio.covid_deaths`
+WHERE location = "United States"
+ORDER BY 1,2
+
+———————————————————————————————
+-- Looking at countries w/ highest infection rate when compared to total population (6)
+SELECT Location, population, MAX(total_cases) AS max_infection_count, MAX(total_cases/population)*100 AS max_infection_rate
+FROM `Portfolio.covid_deaths`
+GROUP BY population, location
+ORDER BY max_infection_rate DESC
+
+———————————————————————————————
+-- Showing countries w/ highest death count per population (7)
+SELECT Location, population, MAX(total_deaths) as highest_total_deaths
+FROM `Portfolio.covid_deaths`
+-- After running this query you can also see continents.
+-- If you look at the initial table, you will see a lot of null results in the continents where the location IS the content. We do not want to see that so we do the following:
+WHERE continent IS NOT NULL
+-- By doing this, you only include the results where there are no null values in the "continent" column, meaning that the location will not have a continent or world in the table shown below.
+GROUP BY location, population
+ORDER by highest_total_deaths DESC
+
+————————————————————————————————
+-- Breaking things down via continent [continents w/ highest death count] (8)
+-- no clue why but when you swap location for continent, it did not give the right values.
+-- so we swapped where "continent is not null" to where "continent is null"
+SELECT Location, MAX(CAST(total_deaths AS int)) as highest_total_deaths
+FROM `Portfolio.covid_deaths`
+WHERE continent IS NULL
+GROUP BY location
+ORDER BY highest_total_deaths DESC
+
+————————————————————————————————-
+-- look at the viewpoint of "I'm gonna visualise it"
+-- We can swap "location" with "continent" in other previous queries to see this kinda thing.
+-- Check out "Drilling down effect"
+
+--Calculating across the entire world - Global numbers (9)
+-- You can't do SUM(MAX(total_cases)) since that's a double aggregate; that doesn't work, i got no clue why. What we can do is do SUM(new_cases) so it will just add up to be the total_cases
+-- so if we categorise it by dates, we will get the sum of all the new cases (total cases) over a given date. This applies for the deaths too.
+
+SELECT /*date,*/SUM(new_cases) AS total_cases, SUM(new_deaths) AS total_deaths, (SUM(new_deaths)/SUM(new_cases))*100 AS death_percentage
+
+-- If you get problems with the data type, you can use CAST function to change the data type; just remember that.
+
+FROM `Portfolio.covid_deaths`
+-- WHERE location = 'United States'
+WHERE continent IS NOT NULL 
+
+--GROUP BY date
+-- if you change line 17 into a comment, we can see the total deaths to cases ratio, instead of segment of every day. Removing line 13 from the code essentially collapses all the days into one and gives us a total output. so let's try that by placing "--" at line 13 and removing( or changing it to comment by doing /* */) "date," from the select list.
+
+ORDER BY 1,2
+
+—————————————————————————————————
+-- Now we look at covid vaccinations (10-1)
+-- **[ x ]**  = previous written code
+-- Using CTE here [3]
+WITH PopVsVac AS (
+SELECT death.continent, death.location, death.date, death.population, vaccine.new_vaccinations, SUM(vaccine.new_vaccinations) OVER (PARTITION BY vaccine.location ORDER BY death.location, death.date) AS Rolling_people_vaccinated
+FROM `Portfolio.covid_deaths` death
+JOIN `Portfolio.covid_vaccinations` vaccine
+  ON death.location = vaccine.location AND death.date = vaccine.date
+WHERE death.continent IS NOT NULL
+--ORDER BY 2,3
+)
+
+SELECT *, (Rolling_people_vaccinated/population)*100 AS percentage_of_people_vaccinated
+FROM PopVsVac
+-- Now we can use this new table for further calculations.
+
+
+-- Time to join the covid vaccinations with the covid deaths table [2]
+
+
+--**SELECT death.continent, death.location, death.date, death.population, vaccine.new_vaccinations, SUM(vaccine.new_vaccinations) OVER (PARTITION BY vaccine.location ORDER BY death.location, death.date) AS Rolling_people_vaccinated**
+
+
+    --Partition by makes sure that the sum function only carries on with a specific location; the numbers wont bleed over (so like, after counting all the canada ones, it wont take the last number it got from canada and add it to the new country) [2]
+    -- Adding on: so the ordering matters a lot as doing partition by just location, and not giving it a time indicator, will lead the code to add all the numbers from one location together and just display that in the total vaccination chart.
+      --Adding a ORDER BY function in the partition by function means that, along with the location, the adding is also being separated via the date.
+
+
+--so [x].[y] is just y column being extracted from x table and using that as a new output dataset being presented here. [2]
+
+
+--**FROM `Portfolio.covid_deaths` death
+--JOIN `Portfolio.covid_vaccinations` vaccine
+--  ON death.location = vaccine.location AND death.date = vaccine.date
+--WHERE death.continent IS NOT NULL /*AND death.location = "Canada" (did this to find canada's report I suppose.*/
+--ORDER BY 2,3**
+--reminding again that order 2,3 is just order by column 2,3. [2]
+
+
+
+-- so what we are doing here is linking the covid_deaths file with covid_vaccinations file through locations and dates. [1]
+
+-- using JOIN, in bigquery, means you are using inner join - in venn diagram, it's the part where both circles have an overlap. So just like the venn diagram, we will only see the data where locations and dates are not NULL values. [1]
+-- Looking at the result, we see that both tables are combined now. You can look for specific columns by replacing * with whatever you want. [1]
+
+-- we are looking at Total population vs Vaccinations here so we will be replacing * now.[1] (this is the part before star was replaced)
